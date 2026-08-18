@@ -1,0 +1,14 @@
+# Build outputs
+src/bin/
+src/obj/
+dist/
+dist-staging/
+*.user
+
+# Portable runtime folders (the app creates these next to its exe at run time)
+/bin/
+/data/
+/etc/
+/logs/
+/tmp/
+/www/
