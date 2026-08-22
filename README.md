@@ -27,9 +27,11 @@ LocalPanel is a native Windows app (WPF / .NET 8) that downloads, installs and m
 |---|---|
 | **PHP** | Install any version (8.5 → 7.3) side by side, per-version php.ini settings, phpredis + common extensions enabled automatically, `php` / `php84` / `php83` commands in any terminal |
 | **Node** | LTS versions side by side, nvm-style global switching (`node` / `npm` / `npx` follow the selected version instantly) |
-| **Sites** | Park a folder → every project inside becomes `name.test` automatically (Laravel `public/` detected), aliases per site, reverse proxy to a port or unix socket with WebSocket support |
+| **Sites** | Park a folder → every project inside becomes `name.test` automatically (Laravel `public/` detected), aliases per site, and routes: one domain can serve a built SPA at `/`, a PHP backend at `/api` and a WebSocket server at `/socket.io` at the same time |
 | **SSL** | Trusted local certificates via mkcert — green lock in Chrome, Edge **and Firefox**, no warnings |
-| **Services** | Nginx, MySQL 8.4, Redis, phpMyAdmin, Composer — one-click install, start/stop/restart, auto-start, clean shutdown on exit |
+| **Databases** | MySQL, MariaDB, PostgreSQL and MongoDB — each in its own card with version picker, install/update, start/stop, port and credentials, ready-to-copy connection strings; phpMyAdmin at `localhost/phpmyadmin` |
+| **Services** | Nginx and Redis — one-click install, start/stop/restart, auto-start, clean shutdown on exit; Composer and SSL install and update themselves silently |
+| **Mail** | Built-in Mailpit inbox catches every email your sites send — HTML, Arabic/RTL, attachments, rendered exactly as recipients see them |
 | **PM2** | See every PM2 process, stop / restart / delete / read logs from the UI |
 | **Hosts file** | Managed automatically in a clearly-marked block, one line per site |
 | **No UAC** | Runs without admin rights — a single one-time permission grant for the hosts file, then never again |

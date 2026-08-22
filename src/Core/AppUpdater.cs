@@ -52,12 +52,22 @@ public static class AppUpdater
     {
         if (!File.Exists(PendingExe)) return;
         var exe = Environment.ProcessPath!;
+        // Wait on OUR pid + actual file name (the exe may be renamed, and another
+        // portable copy's LocalPanel.exe must not keep us waiting), then retry the
+        // move a few times — the file can stay locked briefly after the process exits.
+        var name = Path.GetFileName(exe);
+        var pid = Environment.ProcessId;
         var script = Path.Combine(Paths.Tmp, "update.cmd");
         File.WriteAllText(script, $"""
             @echo off
             :wait
-            tasklist /FI "IMAGENAME eq LocalPanel.exe" | find /I "LocalPanel.exe" >nul && (timeout /t 1 /nobreak >nul & goto wait)
-            move /Y "{PendingExe}" "{exe}" >nul
+            tasklist /FI "PID eq {pid}" | find /I "{name}" >nul && (timeout /t 1 /nobreak >nul & goto wait)
+            set /a n=0
+            :move
+            move /Y "{PendingExe}" "{exe}" >nul 2>&1 && goto run
+            set /a n+=1
+            if %n% lss 10 (timeout /t 1 /nobreak >nul & goto move)
+            :run
             start "" "{exe}"
             del "%~f0"
             """);

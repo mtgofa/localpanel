@@ -26,6 +26,14 @@ public class VersionRow : INotifyPropertyChanged
     }
 
     public string Version => Remote.Version;
+
+    /// <summary>Main text: the installed version when this row is an update offer.</summary>
+    public string DisplayVersion => UpdateFrom ?? Remote.Version;
+
+    /// <summary>Small hint next to the version when an update is available.</summary>
+    public string UpdateHint => UpdateFrom is null ? "" : $"{Remote.Version} available";
+    public bool HasUpdate => UpdateFrom is not null;
+
     public string ActionText => UpdateFrom is null ? "Install" : "Update";
 
     private bool _installed;
@@ -36,7 +44,10 @@ public class VersionRow : INotifyPropertyChanged
     }
 
     /// <summary>Show the Install/Update button?</summary>
-    public bool ShowAction => !_installed;
+    public bool ShowAction => !_installed || UpdateFrom is not null;
+
+    /// <summary>The ✓ only shows when installed AND no update button occupies the cell.</summary>
+    public bool ShowCheck => _installed && UpdateFrom is null;
 
     private bool _isCurrent;
     public bool IsCurrent
@@ -70,7 +81,7 @@ public class VersionRow : INotifyPropertyChanged
     private void Notify(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
     private void NotifyAll()
     {
-        foreach (var n in new[] { nameof(Installed), nameof(ShowAction), nameof(IsCurrent), nameof(CanUse), nameof(ActionText) })
+        foreach (var n in new[] { nameof(Installed), nameof(ShowAction), nameof(ShowCheck), nameof(IsCurrent), nameof(CanUse), nameof(ActionText) })
             Notify(n);
     }
 }

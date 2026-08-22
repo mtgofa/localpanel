@@ -38,9 +38,16 @@ public static class ShimManager
             var v = Path.GetFileName(dir);
             var parts = v.Split('.');
             if (parts.Length < 2) continue;
-            var shim = $"php{parts[0]}{parts[1]}"; // 8.3.33 -> php83
-            WriteCmd(shim + ".cmd", $"@\"%~dp0..\\php\\{v}\\php.exe\" %*");
+            var tag = $"{parts[0]}{parts[1]}"; // 8.3.33 -> 83
+            var exe = $"%~dp0..\\php\\{v}\\php.exe";
+            WriteCmd($"php{tag}.cmd", $"@\"{exe}\" %*");
+            // Per-version shortcuts: composer83, art83 ...
+            if (File.Exists(Paths.ComposerPhar))
+                WriteCmd($"composer{tag}.cmd", $"@\"{exe}\" \"%~dp0..\\composer\\composer.phar\" %*");
+            WriteCmd($"art{tag}.cmd", $"@\"{exe}\" artisan %*");
         }
+        // art = php artisan on the current PHP
+        WriteCmd("art.cmd", "@\"%~dp0..\\php\\current\\php.exe\" artisan %*");
         if (File.Exists(Paths.ComposerPhar))
             WriteCmd("composer.cmd",
                 $"@\"%~dp0..\\php\\current\\php.exe\" \"%~dp0..\\composer\\composer.phar\" %*");
@@ -94,7 +101,17 @@ public static class ShimManager
         using var key = Registry.CurrentUser.CreateSubKey("Environment");
         var current = key.GetValue("Path", "", RegistryValueOptions.DoNotExpandEnvironmentNames) as string ?? "";
         var parts = current.Split(';', StringSplitOptions.RemoveEmptyEntries).ToList();
-        var changed = false;
+
+        // Prune dead entries left behind when the portable folder is moved.
+        var changed = parts.RemoveAll(p =>
+        {
+            var t = p.Trim();
+            var ours = t.EndsWith(@"\bin\shims", StringComparison.OrdinalIgnoreCase) ||
+                       t.EndsWith(@"\bin\node\current", StringComparison.OrdinalIgnoreCase);
+            return ours && !wanted.Any(w => string.Equals(t, w, StringComparison.OrdinalIgnoreCase)) &&
+                   !Directory.Exists(t);
+        }) > 0;
+
         foreach (var w in wanted)
         {
             if (!parts.Any(p => string.Equals(p.Trim(), w, StringComparison.OrdinalIgnoreCase)))

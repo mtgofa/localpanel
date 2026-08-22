@@ -42,6 +42,33 @@ public class MySqlService : ManagedService
     public bool IsInitialized => Directory.Exists(Paths.MySqlData) &&
                                  Directory.EnumerateFileSystemEntries(Paths.MySqlData).Any();
 
+    /// <summary>Apply the configured user/password to the running server (called on Save).</summary>
+    public async Task<string?> ApplyCredentialsAsync(string oldUser, string oldPassword)
+    {
+        var cli = Path.Combine(Paths.MySqlDir, "bin", "mysql.exe");
+        if (!IsRunning || !File.Exists(cli)) return null;
+        var u = Config.MySql.User.Replace("'", "''");
+        var p = Config.MySql.Password.Replace("'", "''");
+        var sql = $"CREATE USER IF NOT EXISTS '{u}'@'localhost' IDENTIFIED BY '{p}'; " +
+                  $"CREATE USER IF NOT EXISTS '{u}'@'127.0.0.1' IDENTIFIED BY '{p}'; " +
+                  $"ALTER USER '{u}'@'localhost' IDENTIFIED BY '{p}'; " +
+                  $"ALTER USER '{u}'@'127.0.0.1' IDENTIFIED BY '{p}'; " +
+                  $"GRANT ALL PRIVILEGES ON *.* TO '{u}'@'localhost' WITH GRANT OPTION; " +
+                  $"GRANT ALL PRIVILEGES ON *.* TO '{u}'@'127.0.0.1' WITH GRANT OPTION; FLUSH PRIVILEGES;";
+        var auth = $"-u {oldUser}" + (oldPassword.Length > 0 ? $" -p{oldPassword}" : "");
+        var (code, _, err) = await ProcessRunner.RunAsync(cli,
+            $"--host=127.0.0.1 --port={Config.MySql.Port} {auth} -e \"{sql}\"", timeoutMs: 30_000);
+        return code == 0 ? null : err.Trim();
+    }
+
+    public override Task<string> GetInstalledVersionAsync()
+        => ToolVersionCache.GetAsync(ExePath, async () =>
+        {
+            var (_, so, se) = await ProcessRunner.RunAsync(ExePath, "--version", timeoutMs: 15_000);
+            var m = System.Text.RegularExpressions.Regex.Match(so + se, @"Ver ([\d.]+)");
+            return m.Success ? m.Groups[1].Value : "";
+        });
+
     public async Task InitializeAsync()
     {
         WriteIni();
@@ -52,7 +79,12 @@ public class MySqlService : ManagedService
             ExePath, $"--defaults-file=\"{IniFile}\" --initialize-insecure --console",
             Paths.MySqlDir, timeoutMs: 180_000);
         if (code != 0)
-            throw new InvalidOperationException("MySQL initialization failed: " + err);
+        {
+            // A partial datadir would pass IsInitialized forever and mysqld refuses to
+            // re-initialize a non-empty dir — remove it (best-effort) so the next start retries.
+            try { Directory.Delete(Paths.MySqlData, recursive: true); } catch { }
+            throw new InvalidOperationException("MySQL initialization failed: " + err + Prereqs.Hint);
+        }
     }
 
     public override async Task StartAsync()
@@ -66,6 +98,8 @@ public class MySqlService : ManagedService
             ExePath, $"--defaults-file=\"{IniFile}\" --console",
             Path.Combine(Paths.MySqlDir, "bin"), logFile: LogFile);
         ProcessRunner.WritePidFile(Id, p.Id);
+        // Remember the port we actually bound so StopAsync targets it even if config changes later.
+        ProcessRunner.WritePortFile(Id, Config.MySql.Port);
         await Task.Delay(1500);
         if (p.HasExited)
         {
@@ -76,15 +110,23 @@ public class MySqlService : ManagedService
 
     public override async Task StopAsync()
     {
-        if (File.Exists(AdminExe))
+        var pids = ProcessRunner.ReadPidFile(Id);
+        var graceful = File.Exists(AdminExe);
+        if (graceful)
         {
-            // Graceful shutdown protects the data files.
-            await ProcessRunner.RunAsync(AdminExe,
-                $"--port={Config.MySql.Port} --host=127.0.0.1 -u root shutdown",
+            // Graceful shutdown protects the data files. Target the port the server was
+            // STARTED with — the config port may already hold the user's new value.
+            var port = ProcessRunner.ReadPortFile(Id, Config.MySql.Port);
+            var (code, _, _) = await ProcessRunner.RunAsync(AdminExe,
+                $"--port={port} --host=127.0.0.1 -u {Config.MySql.User}" + (Config.MySql.Password.Length > 0 ? $" -p{Config.MySql.Password}" : "") + " shutdown",
                 timeoutMs: 30_000);
+            graceful = code == 0; // request refused (bad credentials / port) → no point waiting
         }
-        await Task.Delay(500);
-        foreach (var pid in ProcessRunner.ReadPidFile(Id))
+        // mysqladmin returns as soon as the request is accepted; an InnoDB shutdown with a
+        // warm buffer pool can take several seconds. Poll before resorting to a hard kill.
+        for (var i = 0; graceful && i < 120 && pids.Any(p => ProcessRunner.IsAlive(p, "mysqld")); i++)
+            await Task.Delay(250);
+        foreach (var pid in pids)
             if (ProcessRunner.IsAlive(pid, "mysqld")) ProcessRunner.KillPid(pid);
         ProcessRunner.DeletePidFile(Id);
     }

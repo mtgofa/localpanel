@@ -62,6 +62,8 @@ public static class Paths
     public static string RedisDir => Path.Combine(Bin, "redis");
     public static string PhpMyAdminDir => Path.Combine(Bin, "phpmyadmin");
     public static string MkcertExe => Path.Combine(Bin, "mkcert", "mkcert.exe");
+    public static string MailpitDir => Path.Combine(Bin, "mailpit");
+    public static string MailpitExe => Path.Combine(MailpitDir, "mailpit.exe");
 
     public static string NginxEtc => Ensure(Path.Combine(Etc, "nginx"));
     public static string NginxSites => Ensure(Path.Combine(NginxEtc, "sites"));
@@ -69,6 +71,13 @@ public static class Paths
     public static string SslDir => Ensure(Path.Combine(Etc, "ssl"));
     public static string MySqlEtc => Ensure(Path.Combine(Etc, "mysql"));
     public static string MySqlData => Path.Combine(Data, "mysql");
+    public static string MariaDbDir => Path.Combine(Bin, "mariadb");
+    public static string MariaDbEtc => Ensure(Path.Combine(Etc, "mariadb"));
+    public static string MariaDbData => Path.Combine(Data, "mariadb");
+    public static string PostgresDir => Path.Combine(Bin, "postgres");
+    public static string PostgresData => Path.Combine(Data, "postgres");
+    public static string MongoDir => Path.Combine(Bin, "mongodb");
+    public static string MongoData => Path.Combine(Data, "mongodb");
     public static string RedisData => Ensure(Path.Combine(Data, "redis"));
     public static string PhpEtc => Ensure(Path.Combine(Etc, "php"));
 

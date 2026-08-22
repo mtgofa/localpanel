@@ -22,48 +22,109 @@ public class Downloader
         return c;
     }
 
+    /// <summary>
+    /// Download to a sibling .part file and move it into place only when the
+    /// transfer completed, so a dropped connection never leaves a truncated
+    /// composer.phar / mkcert.exe / LocalPanel.new.exe behind.
+    /// </summary>
     public static async Task<string> DownloadFileAsync(
         string url, string destFile, IProgress<(long done, long total)>? progress = null,
         CancellationToken ct = default)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(destFile)!);
-        using var resp = await Http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct);
-        resp.EnsureSuccessStatusCode();
-        var total = resp.Content.Headers.ContentLength ?? -1;
-
-        await using var src = await resp.Content.ReadAsStreamAsync(ct);
-        await using var dst = File.Create(destFile);
-        var buffer = new byte[1 << 16];
-        long done = 0;
-        int read;
-        while ((read = await src.ReadAsync(buffer, ct)) > 0)
+        var part = destFile + ".part";
+        try
         {
-            await dst.WriteAsync(buffer.AsMemory(0, read), ct);
-            done += read;
-            progress?.Report((done, total));
+            using var resp = await Http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct);
+            resp.EnsureSuccessStatusCode();
+            var total = resp.Content.Headers.ContentLength ?? -1;
+
+            long done = 0;
+            await using (var src = await resp.Content.ReadAsStreamAsync(ct))
+            await using (var dst = File.Create(part))
+            {
+                var buffer = new byte[1 << 16];
+                long lastReported = 0;
+                int read;
+                // HttpClient fails the read on a Content-Length mismatch, so a short
+                // transfer throws here and never reaches the move below.
+                while ((read = await src.ReadAsync(buffer, ct)) > 0)
+                {
+                    await dst.WriteAsync(buffer.AsMemory(0, read), ct);
+                    done += read;
+                    // Throttle: every 1 MB — each report is a dispatcher hop.
+                    if (done - lastReported >= (1 << 20))
+                    {
+                        lastReported = done;
+                        progress?.Report((done, total));
+                    }
+                }
+            }
+            progress?.Report((done, total < 0 ? done : total));
+
+            // The live file is only touched once the download is complete.
+            File.Move(part, destFile, overwrite: true);
+            return destFile;
         }
-        return destFile;
+        finally
+        {
+            TryDelete(part);
+        }
     }
 
-    /// <summary>Download a zip and extract it into targetDir (created fresh).</summary>
+    /// <summary>
+    /// Download a zip and extract it into targetDir (created fresh).
+    /// The previous tree is kept until the new one is fully staged: the swap is
+    /// rename-old → move-new → delete-old, and the old tree is restored if the
+    /// move fails, so a locked dll or a failed download never leaves a
+    /// half-deleted install. <paramref name="beforeSwap"/> (e.g. "stop the
+    /// service") is invoked right before the swap, so the service keeps
+    /// running through the (long) download and is down only for the swap.
+    /// </summary>
     public static async Task DownloadAndExtractAsync(
         string url, string targetDir, IProgress<(long done, long total)>? progress = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default, Func<Task>? beforeSwap = null)
     {
         var tmpZip = Path.Combine(Paths.Tmp, Guid.NewGuid().ToString("N") + ".zip");
         var tmpExtract = Path.Combine(Paths.Tmp, Guid.NewGuid().ToString("N"));
         try
         {
             await DownloadFileAsync(url, tmpZip, progress, ct);
-            Directory.CreateDirectory(tmpExtract);
-            ZipFile.ExtractToDirectory(tmpZip, tmpExtract);
 
-            // Flatten: if the archive contains exactly one top-level folder, use its contents.
-            var entries = Directory.GetFileSystemEntries(tmpExtract);
-            var sourceDir = entries.Length == 1 && Directory.Exists(entries[0]) ? entries[0] : tmpExtract;
+            // Everything below is blocking file I/O (tens of seconds for MySQL/MongoDB):
+            // keep it off the captured UI SynchronizationContext.
+            var sourceDir = await Task.Run(() =>
+            {
+                Directory.CreateDirectory(tmpExtract);
+                ZipFile.ExtractToDirectory(tmpZip, tmpExtract);
 
-            if (Directory.Exists(targetDir)) Directory.Delete(targetDir, recursive: true);
-            Directory.CreateDirectory(Path.GetDirectoryName(targetDir)!);
+                // Flatten: if the archive contains exactly one top-level folder, use its contents.
+                var entries = Directory.GetFileSystemEntries(tmpExtract);
+                return entries.Length == 1 && Directory.Exists(entries[0]) ? entries[0] : tmpExtract;
+            }, ct);
+
+            if (beforeSwap is not null) await beforeSwap();
+
+            await Task.Run(() => SwapIntoPlace(sourceDir, targetDir), ct);
+        }
+        finally
+        {
+            TryDelete(tmpZip);
+            TryDeleteDir(tmpExtract);
+        }
+    }
+
+    /// <summary>Rename-swap: target → target.old, source → target, delete target.old.
+    /// On failure the old tree is put back so the installed component survives.</summary>
+    private static void SwapIntoPlace(string sourceDir, string targetDir)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(targetDir)!);
+        var old = targetDir + ".old";
+        TryDeleteDir(old);
+        var hadOld = Directory.Exists(targetDir);
+        if (hadOld) Directory.Move(targetDir, old);
+        try
+        {
             try
             {
                 Directory.Move(sourceDir, targetDir);
@@ -71,14 +132,21 @@ public class Downloader
             catch (IOException)
             {
                 // Move across volumes/locked handles: fall back to copy.
+                TryDeleteDir(targetDir);
                 CopyDirectory(sourceDir, targetDir);
             }
         }
-        finally
+        catch
         {
-            TryDelete(tmpZip);
-            TryDeleteDir(tmpExtract);
+            // Roll back: drop whatever landed and restore the previous install.
+            TryDeleteDir(targetDir);
+            if (hadOld && Directory.Exists(old) && !Directory.Exists(targetDir))
+            {
+                try { Directory.Move(old, targetDir); } catch { }
+            }
+            throw;
         }
+        if (hadOld) TryDeleteDir(old);
     }
 
     public static void CopyDirectory(string source, string target)

@@ -55,7 +55,6 @@ public static class VersionCatalog
             new("php", "8.1.34", arc + "php-8.1.34-nts-Win32-vs16-x64.zip"),
             new("php", "8.0.30", arc + "php-8.0.30-nts-Win32-vs16-x64.zip"),
             new("php", "7.4.33", arc + "php-7.4.33-nts-Win32-vc15-x64.zip"),
-            new("php", "7.3.33", arc + "php-7.3.33-nts-Win32-VC15-x64.zip"),
         };
     }
 
@@ -134,8 +133,8 @@ public static class VersionCatalog
                              files.EnumerateArray().Any(f => f.GetString() == "win-x64-zip");
                 if (!hasWin) continue;
                 var major = v.TrimStart('v').Split('.')[0];
-                // Even majors only — odd Node majors never become LTS.
-                if (!int.TryParse(major, out var majorNum) || majorNum % 2 != 0) continue;
+                // Even majors only (odd ones never become LTS), and nothing older than 18.
+                if (!int.TryParse(major, out var majorNum) || majorNum % 2 != 0 || majorNum < 18) continue;
                 seenPerMajor.TryGetValue(major, out var n);
                 if (n >= maxPerMajor) continue;
                 seenPerMajor[major] = n + 1;
@@ -166,18 +165,91 @@ public static class VersionCatalog
     public static Task<List<RemoteVersion>> GetMySqlVersionsAsync()
     {
         // dev.mysql.com/get/... redirects to a mirror automatically.
+        // The popular trio: 8.4 (LTS), 8.0, and legacy 5.7 for old projects.
         var list = new List<RemoteVersion>
         {
             new("mysql", "8.4.4", "https://dev.mysql.com/get/Downloads/MySQL-8.4/mysql-8.4.4-winx64.zip"),
             new("mysql", "8.0.41", "https://dev.mysql.com/get/Downloads/MySQL-8.0/mysql-8.0.41-winx64.zip"),
+            new("mysql", "5.7.44", "https://downloads.mysql.com/archives/get/p/23/file/mysql-5.7.44-winx64.zip"),
         };
         return Task.FromResult(list);
     }
 
-    // ---------------- Redis (tporadowski community Windows build) ----------------
+    // ---------------- MariaDB ----------------
+
+    public static Task<List<RemoteVersion>> GetMariaDbVersionsAsync()
+        => Task.FromResult(new List<RemoteVersion>
+        {
+            // 11.4 = current LTS, 10.11 = previous LTS, 10.6 = older LTS still common.
+            new("mariadb", "11.4.5", "https://archive.mariadb.org/mariadb-11.4.5/winx64-packages/mariadb-11.4.5-winx64.zip"),
+            new("mariadb", "10.11.11", "https://archive.mariadb.org/mariadb-10.11.11/winx64-packages/mariadb-10.11.11-winx64.zip"),
+            new("mariadb", "10.6.21", "https://archive.mariadb.org/mariadb-10.6.21/winx64-packages/mariadb-10.6.21-winx64.zip"),
+        });
+
+    // ---------------- PostgreSQL (EDB portable binaries) ----------------
+
+    public static Task<List<RemoteVersion>> GetPostgresVersionsAsync()
+        => Task.FromResult(new List<RemoteVersion>
+        {
+            new("postgres", "17.4", "https://get.enterprisedb.com/postgresql/postgresql-17.4-1-windows-x64-binaries.zip"),
+            new("postgres", "16.8", "https://get.enterprisedb.com/postgresql/postgresql-16.8-1-windows-x64-binaries.zip"),
+            new("postgres", "15.12", "https://get.enterprisedb.com/postgresql/postgresql-15.12-1-windows-x64-binaries.zip"),
+        });
+
+    // ---------------- MongoDB Community ----------------
+
+    public static Task<List<RemoteVersion>> GetMongoVersionsAsync()
+        => Task.FromResult(new List<RemoteVersion>
+        {
+            new("mongodb", "8.0.9", "https://fastdl.mongodb.org/windows/mongodb-windows-x86_64-8.0.9.zip"),
+            new("mongodb", "7.0.19", "https://fastdl.mongodb.org/windows/mongodb-windows-x86_64-7.0.19.zip"),
+            new("mongodb", "6.0.22", "https://fastdl.mongodb.org/windows/mongodb-windows-x86_64-6.0.22.zip"),
+        });
+
+    // ---------------- Redis (Windows community builds) ----------------
 
     public static async Task<List<RemoteVersion>> GetRedisVersionsAsync()
     {
+        // Modern Redis Windows builds, actively maintained — newest release of
+        // each major (8.x / 7.x / 6.x) so LTS-minded users can pick their line.
+        try
+        {
+            var json = await Downloader.GetStringAsync("https://api.github.com/repos/redis-windows/redis-windows/releases?per_page=40");
+            using var doc = JsonDocument.Parse(json);
+            var perMajor = new Dictionary<string, RemoteVersion>();
+            foreach (var rel in doc.RootElement.EnumerateArray())
+            {
+                var tag = (rel.GetProperty("tag_name").GetString() ?? "").TrimStart('v', 'V');
+                if (tag.Length == 0 || !char.IsDigit(tag[0])) continue;
+                var major = tag.Split('.')[0];
+                if (perMajor.ContainsKey(major)) continue; // releases come newest-first
+                string? best = null;
+                foreach (var asset in rel.GetProperty("assets").EnumerateArray())
+                {
+                    var name = asset.GetProperty("name").GetString() ?? "";
+                    if (!name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (!name.Contains("Windows-x64", StringComparison.OrdinalIgnoreCase)) continue;
+                    var url = asset.GetProperty("browser_download_url").GetString();
+                    if (url is null) continue;
+                    if (name.Contains("msys2", StringComparison.OrdinalIgnoreCase) &&
+                        !name.Contains("with-Service", StringComparison.OrdinalIgnoreCase)) { best = url; break; }
+                    best ??= url;
+                }
+                if (best is not null) perMajor[major] = new RemoteVersion("redis", tag, best);
+                if (perMajor.Count >= 3) break;
+            }
+            if (perMajor.Count > 0)
+            {
+                var list = perMajor.Values.ToList();
+                // Legacy 5.x (tporadowski) stays available for old projects.
+                list.Add(new RemoteVersion("redis", "5.0.14.1",
+                    "https://github.com/tporadowski/redis/releases/download/v5.0.14.1/Redis-x64-5.0.14.1.zip"));
+                return SortDesc(list);
+            }
+        }
+        catch { }
+
+        // Fallback: tporadowski 5.x build.
         try
         {
             var json = await Downloader.GetStringAsync("https://api.github.com/repos/tporadowski/redis/releases/latest");
@@ -210,6 +282,23 @@ public static class VersionCatalog
             // Stable alias that always points at the latest release.
             new("phpmyadmin", "latest", "https://www.phpmyadmin.net/downloads/phpMyAdmin-latest-all-languages.zip")
         });
+
+    // ---------------- Mailpit ----------------
+
+    public static async Task<RemoteVersion> GetMailpitAsync()
+    {
+        // The /latest/download/ URL is stable; the API call only names the version.
+        const string url = "https://github.com/axllent/mailpit/releases/latest/download/mailpit-windows-amd64.zip";
+        try
+        {
+            var json = await Downloader.GetStringAsync("https://api.github.com/repos/axllent/mailpit/releases/latest");
+            using var doc = JsonDocument.Parse(json);
+            var tag = (doc.RootElement.GetProperty("tag_name").GetString() ?? "").TrimStart('v', 'V');
+            if (tag.Length > 0) return new RemoteVersion("mailpit", tag, url);
+        }
+        catch { }
+        return new RemoteVersion("mailpit", "latest", url);
+    }
 
     // ---------------- phpredis extension (PECL) ----------------
 

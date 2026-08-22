@@ -3,7 +3,13 @@ using System.Text.Json;
 
 namespace LocalPanel.Core;
 
-public record Pm2Process(int Id, string Name, string Status, double CpuPercent, long MemoryBytes, int? Pid, int Restarts);
+public record Pm2Process(int Id, string Name, string Status, string Port, double CpuPercent, long MemoryBytes, int? Pid, int Restarts)
+{
+    public bool IsOnline => Status == "online";
+    public string ToggleText => IsOnline ? "Stop" : "Start";
+    public string PortText => Port.Length > 0 ? "Port " + Port : "";
+    public string StatsText => IsOnline ? $"{CpuPercent:0.#}%  ·  {MemoryBytes / 1048576} MB" : Status;
+}
 
 /// <summary>
 /// Talks to pm2 through its CLI (pm2 jlist / stop / restart / delete / logs).
@@ -61,10 +67,17 @@ public class Pm2Manager
             {
                 var env2 = el.GetProperty("pm2_env");
                 var monit = el.GetProperty("monit");
+                var port = "";
+                if (env2.TryGetProperty("env", out var appEnv) &&
+                    appEnv.ValueKind == JsonValueKind.Object &&
+                    appEnv.TryGetProperty("PORT", out var portEl))
+                    port = portEl.ValueKind == JsonValueKind.Number
+                        ? portEl.GetRawText() : portEl.GetString() ?? "";
                 result.Add(new Pm2Process(
                     Id: el.GetProperty("pm_id").GetInt32(),
                     Name: el.GetProperty("name").GetString() ?? "?",
                     Status: env2.GetProperty("status").GetString() ?? "?",
+                    Port: port,
                     CpuPercent: monit.GetProperty("cpu").GetDouble(),
                     MemoryBytes: monit.GetProperty("memory").GetInt64(),
                     Pid: el.TryGetProperty("pid", out var pid) && pid.ValueKind == JsonValueKind.Number
@@ -76,6 +89,46 @@ public class Pm2Manager
         catch { return new List<Pm2Process>(); }
     }
 
+    /// <summary>The pm2 daemon (background broker) — detected via its pid file.</summary>
+    public bool DaemonRunning
+    {
+        get
+        {
+            var pidFile = Path.Combine(Paths.Data, "pm2", "pm2.pid");
+            if (!File.Exists(pidFile)) return false;
+            try
+            {
+                return int.TryParse(File.ReadAllText(pidFile).Trim(), out var pid) &&
+                       ProcessRunner.IsAlive(pid);
+            }
+            catch { return false; }
+        }
+    }
+
+    public async Task<string> VersionAsync()
+    {
+        var (code, so, _) = await RunAsync("-v");
+        if (code != 0) return "";
+        var m = System.Text.RegularExpressions.Regex.Match(so, @"\d+\.\d+[\d.]*");
+        return m.Success ? m.Value : "";
+    }
+
+    public Task<(int, string, string)> KillDaemonAsync() => RunAsync("kill");
+
+    /// <summary>Latest pm2 version on npm (null when offline / npm missing).</summary>
+    public async Task<string?> NpmLatestAsync()
+    {
+        if (Pm2Cmd is null && !Locate()) return null;
+        var npm = Path.Combine(NodeBinDir ?? "", "npm.cmd");
+        if (!File.Exists(npm)) npm = Path.Combine(Paths.NodeCurrent, "npm.cmd");
+        if (!File.Exists(npm)) return null;
+        var (code, so, _) = await ProcessRunner.RunAsync(npm, "view pm2 version", env: Env, timeoutMs: 30_000);
+        if (code != 0) return null;
+        var m = System.Text.RegularExpressions.Regex.Match(so, @"\d+\.\d+[\d.]*");
+        return m.Success ? m.Value : null;
+    }
+
+    public Task<(int, string, string)> StartAppAsync(int id) => RunAsync($"start {id}");
     public Task<(int, string, string)> StopAsync(int id) => RunAsync($"stop {id}");
     public Task<(int, string, string)> RestartAsync(int id) => RunAsync($"restart {id}");
     public Task<(int, string, string)> DeleteAsync(int id) => RunAsync($"delete {id}");

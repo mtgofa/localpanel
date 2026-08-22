@@ -20,6 +20,14 @@ public class RedisService : ManagedService
         set { Config.Redis.AutoStart = value; Config.Save(); }
     }
 
+    public override Task<string> GetInstalledVersionAsync()
+        => ToolVersionCache.GetAsync(ExePath, async () =>
+        {
+            var (_, so, se) = await ProcessRunner.RunAsync(ExePath, "--version", timeoutMs: 10_000);
+            var m = System.Text.RegularExpressions.Regex.Match(so + se, @"v=([\d.]+)");
+            return m.Success ? m.Groups[1].Value : "";
+        });
+
     public override async Task StartAsync()
     {
         if (!IsInstalled) throw new InvalidOperationException("Redis is not installed yet.");
@@ -29,6 +37,8 @@ public class RedisService : ManagedService
             $"--port {Config.Redis.Port} --dir \"{Paths.RedisData}\" --bind 127.0.0.1",
             Paths.RedisDir, logFile: LogFile);
         ProcessRunner.WritePidFile(Id, p.Id);
+        // Remember the port we actually bound so StopAsync targets it even if config changes later.
+        ProcessRunner.WritePortFile(Id, Config.Redis.Port);
         await Task.Delay(500);
         if (p.HasExited)
         {
@@ -39,10 +49,22 @@ public class RedisService : ManagedService
 
     public override async Task StopAsync()
     {
-        if (File.Exists(CliExe))
-            await ProcessRunner.RunAsync(CliExe, $"-p {Config.Redis.Port} shutdown nosave", timeoutMs: 10_000);
-        await Task.Delay(300);
-        foreach (var pid in ProcessRunner.ReadPidFile(Id))
+        var pids = ProcessRunner.ReadPidFile(Id);
+        var graceful = File.Exists(CliExe);
+        if (graceful)
+        {
+            // Target the port the server was STARTED with — the config port may already hold the
+            // user's new value. `shutdown save` forces a final dump.rdb into --dir so sessions/queues
+            // survive Stop/Restart/Exit (nosave discarded everything since the last snapshot).
+            var port = ProcessRunner.ReadPortFile(Id, Config.Redis.Port);
+            // (exit code deliberately not checked: some redis-cli builds report the server
+            // closing the connection as an error even though the shutdown was accepted)
+            await ProcessRunner.RunAsync(CliExe, $"-p {port} shutdown save", timeoutMs: 10_000);
+        }
+        // Give the RDB write a moment to finish before the hard-kill fallback.
+        for (var i = 0; graceful && i < 40 && pids.Any(p => ProcessRunner.IsAlive(p, "redis-server")); i++)
+            await Task.Delay(250);
+        foreach (var pid in pids)
             if (ProcessRunner.IsAlive(pid, "redis-server")) ProcessRunner.KillPid(pid);
         ProcessRunner.DeletePidFile(Id);
     }

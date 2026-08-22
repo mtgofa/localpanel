@@ -29,10 +29,21 @@ public abstract class ManagedService
     public abstract Task StartAsync();
     public abstract Task StopAsync();
 
+    /// <summary>Installed binary version ("1.27.4"), empty when unknown.</summary>
+    public virtual Task<string> GetInstalledVersionAsync() => Task.FromResult("");
+
+    /// <summary>
+    /// Start/Stop bodies run synchronously up to their first await (process spawning,
+    /// pid-file IO, config generation), so UI callers should use these to keep the
+    /// dispatcher responsive. Services never touch UI, so Task.Run is safe.
+    /// </summary>
+    public Task StartOffUiAsync() => Task.Run(StartAsync);
+    public Task StopOffUiAsync() => Task.Run(StopAsync);
+
     public async Task RestartAsync()
     {
-        await StopAsync();
+        await StopOffUiAsync();
         await Task.Delay(500);
-        await StartAsync();
+        await StartOffUiAsync();
     }
 }
