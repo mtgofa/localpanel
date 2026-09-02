@@ -1,0 +1,308 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="LocalPanel.Desktop.MainWindow"
+        Title="LocalPanel" Width="1220" Height="780" MinWidth="960" MinHeight="600"
+        Icon="avares://localpanel-gui/Assets/logo.png"
+        FontSize="15"
+        WindowStartupLocation="CenterScreen"
+        SystemDecorations="BorderOnly"
+        Background="{StaticResource BgBrush}">
+    <!-- SystemDecorations="BorderOnly" drops the window-manager title bar (mutter would
+         otherwise draw its own close/maximise buttons on top of the custom ones below)
+         while keeping the resize border. ExtendClientAreaToDecorationsHint does not
+         suppress the frame on X11, which is what caused the doubled title bar. -->
+
+    <DockPanel LastChildFill="True">
+
+        <!-- ======================= SIDEBAR ======================= -->
+        <Border DockPanel.Dock="Left" Width="220" Background="{StaticResource SidebarBrush}">
+            <DockPanel LastChildFill="True">
+                <StackPanel DockPanel.Dock="Top" Margin="20,22,0,24">
+                    <TextBlock Text="LocalPanel" FontSize="21" FontWeight="Bold"
+                               Foreground="{StaticResource TextBrush}"/>
+                    <TextBlock Text="Development Stack" FontSize="12"
+                               Foreground="{StaticResource MutedBrush}" Margin="0,2,0,0"/>
+                </StackPanel>
+
+                <TextBlock DockPanel.Dock="Bottom" Name="VersionText" Classes="muted"
+                           FontSize="12" Margin="22,0,0,14"/>
+
+                <ListBox Name="NavList" Classes="nav" SelectionChanged="NavList_SelectionChanged">
+                    <ListBoxItem Tag="dashboard" IsSelected="True">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#x25A4;" FontSize="17" VerticalAlignment="Center" Margin="0,0,11,0"/>
+                            <TextBlock Text="Dashboard" FontSize="15" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </ListBoxItem>
+                    <ListBoxItem Tag="sites">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#x25CE;" FontSize="17" VerticalAlignment="Center" Margin="0,0,11,0"/>
+                            <TextBlock Text="Sites" FontSize="15" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </ListBoxItem>
+                    <ListBoxItem Tag="php">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#x2B22;" FontSize="17" VerticalAlignment="Center" Margin="0,0,11,0"/>
+                            <TextBlock Text="PHP" FontSize="15" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </ListBoxItem>
+                    <ListBoxItem Tag="node">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#x2B21;" FontSize="17" VerticalAlignment="Center" Margin="0,0,11,0"/>
+                            <TextBlock Text="Node" FontSize="15" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </ListBoxItem>
+                    <ListBoxItem Tag="mail">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#x2709;" FontSize="17" VerticalAlignment="Center" Margin="0,0,11,0"/>
+                            <TextBlock Text="Mail" FontSize="15" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </ListBoxItem>
+                    <ListBoxItem Tag="services">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#x26A1;" FontSize="17" VerticalAlignment="Center" Margin="0,0,11,0"/>
+                            <TextBlock Text="Services" FontSize="15" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </ListBoxItem>
+                    <ListBoxItem Tag="pm2">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#x21BB;" FontSize="17" VerticalAlignment="Center" Margin="0,0,11,0"/>
+                            <TextBlock Text="PM2" FontSize="15" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </ListBoxItem>
+                    <ListBoxItem Tag="settings">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#x2699;" FontSize="17" VerticalAlignment="Center" Margin="0,0,11,0"/>
+                            <TextBlock Text="Settings" FontSize="15" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </ListBoxItem>
+                </ListBox>
+            </DockPanel>
+        </Border>
+
+        <!-- ======================= STATUS BAR ======================= -->
+        <Border DockPanel.Dock="Bottom" Background="{StaticResource HeaderBrush}" Padding="18,7">
+            <DockPanel LastChildFill="True">
+                <ProgressBar Name="DownloadProgress" DockPanel.Dock="Right" Width="220" Height="6"
+                             Minimum="0" Maximum="100" VerticalAlignment="Center"/>
+                <TextBlock Name="DownloadStatus" Classes="muted" VerticalAlignment="Center"
+                           Text="Ready." TextTrimming="CharacterEllipsis" Margin="0,0,12,0"/>
+            </DockPanel>
+        </Border>
+
+        <!-- ======================= CONTENT ======================= -->
+        <DockPanel LastChildFill="True">
+
+            <!-- Custom title bar -->
+            <Border DockPanel.Dock="Top" Background="{StaticResource HeaderBrush}"
+                    PointerPressed="TitleBar_PointerPressed">
+                <DockPanel LastChildFill="True">
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Top">
+                        <Button Classes="caption" Content="&#x2500;" Click="WinMin_Click"/>
+                        <Button Name="MaxBtn" Classes="caption" Content="&#x25A1;" Click="WinMax_Click"/>
+                        <Button Classes="caption captionClose" Content="&#x2715;" Click="WinClose_Click"/>
+                    </StackPanel>
+                    <TextBlock Name="PageTitle" Text="Dashboard" Classes="h1" Margin="26,16"/>
+                </DockPanel>
+            </Border>
+
+            <Grid Margin="26,20">
+
+                <!-- ============ DASHBOARD ============ -->
+                <ScrollViewer Name="PageDashboard" VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
+                        <Border Classes="card">
+                            <StackPanel>
+                                <DockPanel LastChildFill="True" Margin="0,0,0,10">
+                                    <Button Name="DashAllBtn" DockPanel.Dock="Right" Content="Start all services"
+                                            MinWidth="150" Click="DashAll_Click"/>
+                                    <TextBlock Text="Active Services" Classes="h2" Margin="0" VerticalAlignment="Center"/>
+                                </DockPanel>
+                                <StackPanel Name="ActiveServicesList"/>
+                                <TextBlock Name="NoActiveServices" Text="No services installed yet." Classes="muted"/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Classes="card">
+                            <DockPanel LastChildFill="True">
+                                <ComboBox Name="GlobalPhpCombo" DockPanel.Dock="Right" Width="140"
+                                          VerticalAlignment="Center"
+                                          SelectionChanged="OnGlobalPhpChanged"/>
+                                <StackPanel>
+                                    <TextBlock Text="Global PHP Version" Classes="h2" Margin="0,0,0,4"/>
+                                    <TextBlock Classes="muted"
+                                               Text="Default version for new sites and for sites without an explicit version."/>
+                                </StackPanel>
+                            </DockPanel>
+                        </Border>
+
+                        <Border Classes="card">
+                            <DockPanel LastChildFill="True">
+                                <ComboBox Name="GlobalNodeCombo" DockPanel.Dock="Right" Width="140"
+                                          VerticalAlignment="Center"
+                                          SelectionChanged="OnGlobalNodeChanged"/>
+                                <StackPanel>
+                                    <TextBlock Text="Global Node Version" Classes="h2" Margin="0,0,0,4"/>
+                                    <TextBlock Classes="muted"
+                                               Text="What node / npm / npx point at in every terminal (nvm-style switch)."/>
+                                </StackPanel>
+                            </DockPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+
+                <!-- ============ SITES ============ -->
+                <Grid Name="PageSites" IsVisible="False" ColumnDefinitions="300,*">
+                    <Border Grid.Column="0" Classes="card" Margin="0,0,14,0">
+                        <DockPanel LastChildFill="True">
+                            <TextBlock DockPanel.Dock="Top" Text="Parked Folders" Classes="h2"/>
+                            <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,12,0,0">
+                                <Button Content="Add folder" Click="AddParked_Click"/>
+                                <Button Content="Sync" Classes="accent" Click="OnSyncSitesClicked"/>
+                            </StackPanel>
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                <StackPanel Name="ParkedList"/>
+                            </ScrollViewer>
+                        </DockPanel>
+                    </Border>
+
+                    <DockPanel Grid.Column="1" LastChildFill="True">
+                        <TextBlock DockPanel.Dock="Top" Text="Parked Sites" Classes="h2"/>
+                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <StackPanel Name="SitesContainer" Spacing="10"/>
+                        </ScrollViewer>
+                    </DockPanel>
+                </Grid>
+
+                <!-- ============ PHP ============ -->
+                <ScrollViewer Name="PagePhp" IsVisible="False" VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
+                        <Border Classes="card">
+                            <StackPanel>
+                                <TextBlock Text="Installed PHP Versions" Classes="h2"/>
+                                <StackPanel Name="InstalledPhpList"/>
+                            </StackPanel>
+                        </Border>
+                        <Border Classes="card">
+                            <StackPanel>
+                                <TextBlock Text="Available to Install" Classes="h2"/>
+                                <StackPanel Name="AvailablePhpList"/>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+
+                <!-- ============ NODE ============ -->
+                <ScrollViewer Name="PageNode" IsVisible="False" VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
+                        <Border Classes="card">
+                            <StackPanel>
+                                <TextBlock Text="Installed Node Versions" Classes="h2"/>
+                                <TextBlock Classes="muted" Margin="0,0,0,10"
+                                           Text="The active version backs node / npm / npx; every version also gets direct shims (node20, npm20 …)."/>
+                                <StackPanel Name="InstalledNodeList"/>
+                            </StackPanel>
+                        </Border>
+                        <Border Classes="card">
+                            <StackPanel>
+                                <TextBlock Text="Available to Install" Classes="h2"/>
+                                <StackPanel Name="AvailableNodeList"/>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+
+                <!-- ============ MAIL ============ -->
+                <ScrollViewer Name="PageMail" IsVisible="False" VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
+                        <Border Classes="card">
+                            <DockPanel LastChildFill="True">
+                                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <Button Name="MailToggleBtn" Content="Start" MinWidth="90" Click="MailToggle_Click"/>
+                                    <Button Name="MailOpenBtn" Content="Open Inbox" Classes="accent" Click="MailOpen_Click"/>
+                                </StackPanel>
+                                <StackPanel>
+                                    <TextBlock Text="Mailpit" Classes="h2" Margin="0,0,0,4"/>
+                                    <TextBlock Name="MailStatusText" Classes="muted"
+                                               Text="Catches every email your sites send."/>
+                                </StackPanel>
+                            </DockPanel>
+                        </Border>
+
+                        <Border Classes="card">
+                            <StackPanel>
+                                <TextBlock Text="SMTP Settings for your apps" Classes="h2"/>
+                                <TextBlock Name="MailSmtpText" Classes="muted" TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+
+                <!-- ============ SERVICES ============ -->
+                <ScrollViewer Name="PageServices" IsVisible="False" VerticalScrollBarVisibility="Auto">
+                    <StackPanel Name="ServicesContainer"/>
+                </ScrollViewer>
+
+                <!-- ============ PM2 ============ -->
+                <ScrollViewer Name="PagePm2" IsVisible="False" VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
+                        <Border Classes="card">
+                            <DockPanel LastChildFill="True">
+                                <Button DockPanel.Dock="Right" Content="Refresh" Click="Pm2Refresh_Click"
+                                        VerticalAlignment="Center"/>
+                                <StackPanel>
+                                    <TextBlock Text="PM2 Processes" Classes="h2" Margin="0,0,0,4"/>
+                                    <TextBlock Name="Pm2StatusText" Classes="muted"/>
+                                </StackPanel>
+                            </DockPanel>
+                        </Border>
+                        <Border Classes="card">
+                            <StackPanel Name="Pm2List"/>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+
+                <!-- ============ SETTINGS ============ -->
+                <ScrollViewer Name="PageSettings" IsVisible="False" VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
+                        <Border Classes="card">
+                            <DockPanel LastChildFill="True">
+                                <Button DockPanel.Dock="Right" Content="Save" Classes="accent"
+                                        VerticalAlignment="Center" Click="SaveTld_Click"/>
+                                <StackPanel>
+                                    <TextBlock Text="Local TLD" Classes="h2" Margin="0,0,0,4"/>
+                                    <TextBlock Classes="muted" Margin="0,0,0,8"
+                                               Text="Suffix used for parked sites (e.g. myapp.test)."/>
+                                    <TextBox Name="TldInput" Width="200" HorizontalAlignment="Left"/>
+                                </StackPanel>
+                            </DockPanel>
+                        </Border>
+
+                        <Border Classes="card">
+                            <StackPanel>
+                                <TextBlock Text="Startup" Classes="h2"/>
+                                <CheckBox Name="AutoStartCheck" Content="Start services automatically on launch"
+                                          Margin="0,0,0,8" Click="AutoStartCheck_Click"/>
+                                <CheckBox Name="CheckUpdatesCheck" Content="Check for updates on start"
+                                          Click="CheckUpdatesCheck_Click"/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Classes="card">
+                            <DockPanel LastChildFill="True">
+                                <Button DockPanel.Dock="Right" Content="Update Now" Classes="accent"
+                                        VerticalAlignment="Center" Click="OnUpdateAppClicked"/>
+                                <StackPanel>
+                                    <TextBlock Text="Check for Updates" Classes="h2" Margin="0,0,0,4"/>
+                                    <TextBlock Classes="muted"
+                                               Text="Check GitHub Releases for newer versions of LocalPanel."/>
+                                </StackPanel>
+                            </DockPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+
+            </Grid>
+        </DockPanel>
+    </DockPanel>
+</Window>

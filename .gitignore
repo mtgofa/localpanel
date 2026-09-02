@@ -1,6 +1,6 @@
 # Build outputs
-src/bin/
-src/obj/
+bin/
+obj/
 dist/
 dist-staging/
 *.user

@@ -14,7 +14,17 @@
     <!-- Compress the bundled .NET runtime inside the single-file exe (~half the size). -->
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
     <Version>1.0.0</Version>
+    <!-- This project sits at src/ root, so the SDK's default globs would otherwise
+         swallow the cross-platform projects in src/LocalPanel.{Core,App,Desktop}
+         (duplicate types + their obj/ generated files). Keep them out. -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);LocalPanel.Core\**;LocalPanel.App\**;LocalPanel.Desktop\**</DefaultItemExcludes>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Shared cross-platform engine: Core/ and Services/ live in LocalPanel.Core
+         and are consumed by the WPF app, the CLI and the Avalonia GUI alike. -->
+    <ProjectReference Include="LocalPanel.Core\LocalPanel.Core.csproj" />
+  </ItemGroup>
 
   <ItemGroup>
     <Resource Include="Assets\app.ico" />
