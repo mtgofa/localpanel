@@ -1,0 +1,70 @@
+name: Release
+
+# Every push to main builds the Windows exe and publishes it as a new release.
+#
+# Version = <major>.<minor> from <Version> in src/LocalPanel.csproj, with the
+# workflow run number as the patch (1.0.0 -> v1.0.1, v1.0.2, ...). It is baked
+# into the exe with -p:Version, which is what AppUpdater compares against the
+# latest release tag, so installed copies offer each new build as an update.
+# Bump <Version> in the csproj to move to a new major/minor line.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# Two quick pushes must not race each other to "latest".
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Compute version
+        id: ver
+        shell: pwsh
+        run: |
+          [xml]$proj = Get-Content src/LocalPanel.csproj
+          $base = [string]($proj.Project.PropertyGroup | ForEach-Object { $_.Version } | Where-Object { $_ } | Select-Object -First 1)
+          if (-not $base) { $base = '1.0.0' }
+          $parts = $base.Split('.')
+          $version = "$($parts[0]).$($parts[1]).${{ github.run_number }}"
+          "version=$version" >> $env:GITHUB_OUTPUT
+          Write-Host "Version: $version"
+
+      - name: Publish
+        shell: pwsh
+        run: |
+          dotnet publish src/LocalPanel.csproj -c Release -r win-x64 --self-contained true `
+            -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:Version=${{ steps.ver.outputs.version }} `
+            -o dist
+
+      - name: Checksum
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash dist/LocalPanel.exe -Algorithm SHA256).Hash.ToLower()
+          "$hash  LocalPanel.exe" | Out-File -Encoding ascii dist/SHA256SUMS.txt
+
+      - name: Create release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "v${{ steps.ver.outputs.version }}"
+          gh release create $tag dist/LocalPanel.exe dist/SHA256SUMS.txt `
+            --target "${{ github.sha }}" `
+            --title "LocalPanel $tag" `
+            --generate-notes `
+            --latest

@@ -39,7 +39,7 @@ LocalPanel is a native Windows app (WPF / .NET 8) that downloads, installs and m
 
 ## Quick start
 
-1. Download `LocalPanel.exe` and put it in its own folder (e.g. `C:\LocalPanel`).
+1. Download `LocalPanel.exe` from the [latest release](https://github.com/mtgofa/localpanel/releases/latest) and put it in its own folder (e.g. `C:\LocalPanel`).
 2. Run it — no installer, no admin prompt.
 3. Open **Services** and install Nginx, MySQL, mkcert (and whatever else you need).
 4. Open **Settings → Parked folders** and add your projects folder.
@@ -54,6 +54,10 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 ```
 
 Produces `dist\LocalPanel.exe` — a single self-contained file, no .NET needed on the target machine.
+
+Every push to `main` also builds the exe on GitHub Actions and publishes it as a new
+release (`v<major>.<minor>.<build number>`), which installed copies pick up through the
+built-in update check.
 
 ---
 
