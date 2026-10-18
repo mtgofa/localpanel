@@ -19,7 +19,9 @@ public static class Program
         // Cheap existence check — the full rewrite only happens once.
         try
         {
-            if (!File.Exists(Path.Combine(Paths.ShimsDir, "lpanel")))
+            var alias = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".local", "bin", "lpanel");
+            if (!File.Exists(alias))
             {
                 ShimManager.Apply(_manager.Config);
                 ShimManager.EnsureUserPath();

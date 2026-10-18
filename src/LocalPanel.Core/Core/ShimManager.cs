@@ -13,7 +13,9 @@ namespace LocalPanel.Core;
 ///      * node, npm, npx, corepack (run on CURRENT node)
 ///      * node18, node20, node22, npm18, npm20, npm22 (per-version NVM shims)
 ///      * nvm (CLI tool to switch versions, list installed versions, etc.)
-///  - the shims folder is added to PATH (user environment)
+///
+/// On Unix the folder is NOT added to PATH — it would shadow the system and nvm
+/// toolchains. Only the localpanel/lpanel CLI is exposed, via ~/.local/bin.
 /// </summary>
 public static class ShimManager
 {
@@ -385,20 +387,51 @@ public static class ShimManager
 
     private static void EnsureUserPathUnix()
     {
+        RemoveStaleUnixPathEntries();
+        LinkUnixCliAliases();
+    }
+
+    /// <summary>
+    /// Earlier builds appended "export PATH=&lt;shims&gt;:$PATH" to the shell rc files, which
+    /// shadowed the user's own php/node. Those lines are ours, so take them back out.
+    /// </summary>
+    private static void RemoveStaleUnixPathEntries()
+    {
         try
         {
             var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            var exportLine = $"export PATH=\"{Paths.ShimsDir}:$PATH\"";
-            var rcFiles = new[] { Path.Combine(home, ".bashrc"), Path.Combine(home, ".zshrc"), Path.Combine(home, ".profile") };
-
-            foreach (var rc in rcFiles)
+            foreach (var rc in new[] { ".bashrc", ".zshrc", ".profile", ".bash_profile" })
             {
-                if (!File.Exists(rc)) continue;
-                var content = File.ReadAllText(rc);
-                if (!content.Contains(Paths.ShimsDir))
-                {
-                    File.AppendAllText(rc, $"\n# LocalPanel Shims\n{exportLine}\n");
-                }
+                var path = Path.Combine(home, rc);
+                if (!File.Exists(path)) continue;
+
+                var kept = File.ReadAllLines(path)
+                    .Where(l => !l.Contains(Paths.ShimsDir, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                if (kept.Count == File.ReadAllLines(path).Length) continue;
+
+                File.WriteAllText(path, string.Join(Environment.NewLine, kept).TrimEnd() + Environment.NewLine);
+            }
+        }
+        catch { }
+    }
+
+    private static void LinkUnixCliAliases()
+    {
+        try
+        {
+            var cli = Path.Combine(Paths.Root, "dist", Platform.Exe("localpanel"));
+            if (!File.Exists(cli)) return;
+
+            var bin = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".local", "bin");
+            Directory.CreateDirectory(bin);
+
+            foreach (var name in new[] { "localpanel", "lpanel" })
+            {
+                var link = Path.Combine(bin, name);
+                if (File.Exists(link) || Directory.Exists(link)) File.Delete(link);
+                Directory.CreateSymbolicLink(link, cli);
             }
         }
         catch { }

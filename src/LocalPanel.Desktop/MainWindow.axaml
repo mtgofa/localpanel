@@ -199,7 +199,7 @@
                             <StackPanel>
                                 <TextBlock Text="Installed Node Versions" Classes="h2"/>
                                 <TextBlock Classes="muted" Margin="0,0,0,10"
-                                           Text="The active version backs node / npm / npx; every version also gets direct shims (node20, npm20 …)."/>
+                                           Text="The active version backs the per-version runners in bin/shims (node20, npm20 …). bin/shims is not on your PATH, so your own nvm keeps working; only the localpanel CLI is linked into ~/.local/bin."/>
                                 <StackPanel Name="InstalledNodeList"/>
                             </StackPanel>
                         </Border>
